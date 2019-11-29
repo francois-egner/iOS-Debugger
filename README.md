@@ -1,2 +1,2 @@
-# iOS-Debugger
-Ein Debugger für iOS 11+, der grundlegende Funktionen wie z.B. Breakpoints setzen/löschen, Registermanipulation, Singlestepping usw. zur Verfügung stellt
+Basierend auf der Ausarbeitung für die Projektgruppe "IT-Sicherheit" an der Rheinischen Friedrich-Wilhelms-Universität in Bonn.
+Ausarbeitung zu finden auf: https://www.francois-egner.de/projekte ("Entwicklung eines iOS-Debuggers")
