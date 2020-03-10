@@ -1,29 +1,29 @@
-Basierend auf der Ausarbeitung für die Projektgruppe "IT-Sicherheit" an der Rheinischen Friedrich-Wilhelms-Universität in Bonn.  
-Ausarbeitung zu finden auf: https://www.francois-egner.de/projekte ("Entwicklung eines iOS-Debuggers")  
-Abschlusspräsentation der Projektgruppe: https://bit.ly/2L6bEaO  
-
-Nutzung:
-----------------------------
-Speicher beschreiben: memory write [0xAdresse] [0xDaten]  
-Speicher lesen: memory read [0xAdresse]  
-Register lesen: register read [index]  
-Register beschreiben: register set [index] [0xDaten]  
-Alle Register anzeigen: register showAll  
-Softwarebreakpoint setzen: breakpoint set [0xAdresse]  
-Softwarebreakpoint löschen: breakpoint delete [0xAdresse]  
-Alle Breakpoints anzeigen: breakpoint showAll  
-Single Step: n oder next  
-Fortsetzen: c oder continue  
-
-Implementiert:  
-----------------------------
-Task pausieren & fortsetzen  
-Speicher lesen & schreiben  
-Register lesen & schreiben  
-Breakpoint setzen & löschen  
-Single Step  
+Based on the elaboration for the project group "IT Security" at the Rheinische Friedrich-Wilhelms-University in Bonn.  
+Elaboration to be found at: https://www.francois-egner.de/projekte ("Development of an iOS-Debugger")    
   
+Final presentation of the project group: https://bit.ly/2L6bEaO  
 
-Ggf. noch zu implementieren:  
-----------------------------
-Codesegment -> Assembly  
+Usage:  
+----------------------------  
+Write to memory: memory write [0xAddress] [0xData]    
+Read memory: memory read [0x address]    
+Read register: register read [index]  
+Write to registers register set [index] [0xData]  
+Show all registers: register showAll  
+Set software breakpoint: breakpoint set [0x address].  
+Delete software breakpoint: breakpoint delete [0xAddress].  
+Show all breakpoints: breakpoint showAll  
+Single Step: n or next  
+Continue: c or continue  
+  
+Implemented:  
+------------
+Pause & resume task  
+Memory read & write  
+Register read & write  
+Set & delete breakpoint  
+single step  
+  
+Still to be implemented, if necessary:  
+--------------------------------------  
+Code segment -> Assembly
