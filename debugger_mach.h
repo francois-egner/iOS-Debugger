@@ -1,21 +1,21 @@
-#include <mach/mach.h>  //Alles möglich rund um die MACH API		
-#include <stdio.h>		//fprintf()
-#include <stdlib.h>		//atoi(), exit(), malloc()
-#include <stdbool.h>	//für boolsche Werte
+#include <mach/mach.h>  //Mach-API		
+#include <stdio.h>	//fprintf()
+#include <stdlib.h>	//atoi(), exit(), malloc()
+#include <stdbool.h>	//boolean values
 
 
-//Funktionsköpfe, damit die Funktionen ins Programm eingebunden werden
-kern_return_t mach_vm_write(vm_map_t target_task, mach_vm_address_t address, vm_offset_t data, mach_msg_type_number_t dataCnt);	//Daten in Speicher schreiben
-kern_return_t mach_vm_protect(vm_map_t target_task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t new_protection); //Protection-Level bestimmen
-kern_return_t mach_vm_read_overwrite(vm_map_t target_task, mach_vm_address_t address, mach_vm_size_t size, mach_vm_address_t data, mach_vm_size_t* outsize);	//Daten von Speicher lesen
-extern int exc_server(mach_msg_header_t* InHeadP, mach_msg_header_t* OutHeadP);
+//Mach API provided function signatures
+kern_return_t mach_vm_write(vm_map_t target_task, mach_vm_address_t address, vm_offset_t data, mach_msg_type_number_t dataCnt); //Write data into target_tasks memory
+kern_return_t mach_vm_protect(vm_map_t target_task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t new_protection); //Change protection level of memory region
+kern_return_t mach_vm_read_overwrite(vm_map_t target_task, mach_vm_address_t address, mach_vm_size_t size, mach_vm_address_t data, mach_vm_size_t* outsize); //Read data from target_tasks memory
+extern int exc_server(mach_msg_header_t* InHeadP, mach_msg_header_t* OutHeadP);	//Exception server
 
-mach_msg_type_number_t stateCount = ARM_THREAD_STATE64_COUNT;	//Für sämtliche Thread-Aktionen erforderlich
-task_t globalTask;		//Globaler Task für Testzwecke
-const unsigned char breakpointInstruction[] = { 0x00, 0x00 ,0x20, 0xd4 };
-const unsigned char NOP[] = { 0x1f, 0x20, 0x03, 0xd5 };
+mach_msg_type_number_t stateCount = ARM_THREAD_STATE64_COUNT;
+task_t globalTask;
+const unsigned char breakpointInstruction[] = { 0x00, 0x00 ,0x20, 0xd4 }; //ARMv8 BRK instruction
+const unsigned char NOP[] = { 0x1f, 0x20, 0x03, 0xd5 }; //ARMv8 NOP instruction
 
-task_t getTaskFromPID(pid_t);	//Task-Port von Zielprozess ermitteln
+task_t getTaskFromPID(pid_t); //Determine port from debuggee
 
 //-------------------------User input------------------------------//
 char** getInput();
@@ -23,33 +23,33 @@ char* getRAWInput(int* outputSize);
 char* getSubstring(char* input, int start_index, int size);
 
 //-------------------------Execution------------------------------//
-void pauseChild(task_t task);	//Task pausieren
-void resumeChild(task_t task);	//Task forsetzen
+void pauseChild(task_t task); //Pause task
+void resumeChild(task_t task); //Resume task
 
 //-------------------------Threads------------------------------//
-void getThreads(task_t task, thread_act_port_array_t* threadsList, mach_msg_type_number_t*);	//Threads eines Tasks ermitteln
-void getThreadState(arm_thread_state64_t* state, mach_msg_type_number_t stateCount, thread_act_port_array_t threadsList, int);		//State eines Threads ermitteln
-void setThreadState(arm_thread_state64_t* state, mach_msg_type_number_t stateCount, thread_act_port_array_t threadsList, int);	//State eines Threads setzen
+void getThreads(task_t task, thread_act_port_array_t* threadsList, mach_msg_type_number_t*); //Determine every existing thread of given task
+void getThreadState(arm_thread_state64_t* state, mach_msg_type_number_t stateCount, thread_act_port_array_t threadsList, int index); //Determine state of a given thread (list ü index)
+void setThreadState(arm_thread_state64_t* state, mach_msg_type_number_t stateCount, thread_act_port_array_t threadsList, int index); //Set state of a given thread (list +index)
 
 //-------------------------Debug------------------------------//
 void getDebugState(arm_debug_state64_t* state, mach_msg_type_number_t stateCount, thread_act_port_array_t threadsList, int index);
 void setDebugState(arm_debug_state64_t* state, mach_msg_type_number_t stateCount, thread_act_port_array_t threadsList, int index);
 
 //-------------------------Single Stepping------------------------------//
-void setSSBit(task_t task);
+void setSSBit(task_t task); //Set SingleStep/SoftwareStep bit
 //-------------------------Registers------------------------------//
-void showRegistersFromTask(task_t);	//Register eines Threads anzeigen
-void showRegistersFromState(arm_thread_state64_t threadState);	//State detailliert ausgeben
-uint64_t getRegister(task_t task, int indexRegister);	//Registerinhalt eines Tasks ermitteln
-void setRegister(task_t, int, long long unsigned);		//Registerinhalt eines Tasks setzen
+void showRegistersFromTask(task_t); //Show the contents of the first thread of the task
+void showRegistersFromState(arm_thread_state64_t threadState); //Output all informtion of given a thread state
+uint64_t getRegister(task_t task, int indexRegister); //Show content of a specific register (1st thread)
+void setRegister(task_t, int indexRegister, long long unsigned value); //Set content of a specific register (1st thread)
 
 //-------------------------Memory------------------------------//
-unsigned char* readMemory(task_t task, vm_address_t addr, mach_vm_size_t size);	//Speicher eines Tasks auslesen
-bool writeMemory(task_t task, mach_vm_address_t dest, void* data, unsigned int size);	//Speicher eines Tasks schreiben
+unsigned char* readMemory(task_t task, vm_address_t addr, mach_vm_size_t size);	//Read memory chunk of given tasks memory
+bool writeMemory(task_t task, mach_vm_address_t dest, void* data, unsigned int size);	//Write chunk of data into given tasks memory
 
 //-------------------------Exceptions------------------------------//
-mach_port_t* createExceptionPort(task_t task);	//Exception-Port erstellen und Task zuweisen
-void createExceptionHandler(mach_port_t exceptionPort);	//Exception-Handler erstellen
+mach_port_t* createExceptionPort(task_t task); //Create exception port and assign it to given task
+void createExceptionHandler(mach_port_t exceptionPort);	//Create exception handler
 
 //-------------------------Breakpoints------------------------------//
 typedef struct Breakpoint {
@@ -59,7 +59,7 @@ typedef struct Breakpoint {
 	struct Breakpoint* next;
 	struct Breakpoint* previous;
 }Breakpoint;
-Breakpoint* breakpointList = NULL;
+Breakpoint* breakpointList = NULL; //Double linked breakpoint list
 bool addBreakpoint(task_t task, vm_address_t addr, bool permanent);
 bool deleteBreakpoint(task_t task, vm_address_t addr);
 void printBreakpoints();
