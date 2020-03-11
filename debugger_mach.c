@@ -2,17 +2,17 @@
 
 int main(int ac, char **av){													
 																					
-	pid_t pid = atoi(av[1]);			//Übergebene PID als Integer entgegennehmen
-	globalTask = getTaskFromPID(pid);		//Globale Task-Variable setzen													
+	pid_t pid = atoi(av[1]); //Convert given PID-String into integer
+	globalTask = getTaskFromPID(pid); //Determine task of given PID													
 
-	mach_port_t* port = createExceptionPort(globalTask);	//Exception-Port für Child-Task erstellen und setzen
-	createExceptionHandler(*port);							//Exception registrieren
+	mach_port_t* port = createExceptionPort(globalTask); //Create exception port for debugee
+	createExceptionHandler(*port); //Register exception handler for exception port
 
     return 0;
 }
 
 
-//Exception-Handling aka. Debug-Loop
+//Exception handling (breakpoints only) aka. debug loop
 extern kern_return_t catch_exception_raise(
 	mach_port_t                          exception_port,
 	mach_port_t                                  thread,
@@ -22,28 +22,30 @@ extern kern_return_t catch_exception_raise(
 	mach_msg_type_number_t                   code_count
 ) {	
 	
-	if (exception == EXC_BREAKPOINT) {
-		uint64_t pc = getRegister(task, 32);	//Program Counter auslesen
-		unsigned char* instruction = readMemory(task, pc, 4);	//Aktuelle Instruktion auslesen
-		fprintf(stderr, "Adresse: %llx Instruktion: 0x%.2hhx%.2hhx%.2hhx%.2hhx\n", pc, instruction[0], instruction[1], instruction[2], instruction[3]);
+	if (exception == EXC_BREAKPOINT) { //Is exception caused by a breakpoint hit?
+		uint64_t pc = getRegister(task, 32); //Read program counter
+		unsigned char* instruction = readMemory(task, pc, 4); //Read instruction where PC is pointing to
+		fprintf(stderr, "Address: %llx Instruction: 0x%.2hhx%.2hhx%.2hhx%.2hhx\n", pc, instruction[0], instruction[1], instruction[2], instruction[3]); //Print PC and associated instruction
 
-		//Originale Instruktion des Breakpoints wiederherstellen, wenn ein Breakpoint dort von diesem Debugger gesetzt wurde
-		if (BreakpointExists(pc)) {		//Wenn es einen Breakpoint für die Adresse ist, die derzeit den Interrupt beinhaltet
-			deleteBreakpoint(task, pc);
-		}//writeMemory(task, pc, (void*)&NOP, 4);	//Schreibe eine NOP an die Stelle des Breakpoints, der nicht vom Debugger behandelt werden kann
 		
+		if (BreakpointExists(pc)) { //Was the breakpoint set by the debugger?
+			deleteBreakpoint(task, pc); //Delete the breakpoint
+		}
+		
+		//Some ugly input parsing...
 		while (true) {
 			printf(">");
 			int groesse = 0;
 			char** input = getInput(&groesse);
-
+			
+			//Breakpoint commands
 			if (!strcmp(input[0], "breakpoint")) {
-				if (groesse == 1) {		//Wenn kein Parameter für den Breakpoint-Befehl angegeben wurde...
-					printf("Fehlender Parameter!\n");
+				if (groesse == 1) {
+					printf("Missing argument!\n");
 				}else if (!strcmp(input[1], "set")) {
-					if (groesse == 3) {		//Prüfe ob es einen weiteren Parameter gibt, der die Adresse für den neuen Breakpoint ist
-						vm_address_t addr = (vm_address_t)strtoull(input[2], NULL, 16);	//Wandle den eingegebenen Hex-String in Adresse um
-						addBreakpoint(task, addr, false);	//Setze den Breakpoint
+					if (groesse == 3) {		
+						vm_address_t addr = (vm_address_t)strtoull(input[2], NULL, 16);
+						addBreakpoint(task, addr, false);
 					}
 				}else if (!strcmp(input[1], "showAll")) {
 					printBreakpoints();
@@ -53,38 +55,40 @@ extern kern_return_t catch_exception_raise(
 						if (BreakpointExists(addr)) {
 							deleteBreakpoint(task, addr);
 						}else {
-							printf("Breakpoint konnte nicht gelöscht werden, da dieser nicht existiert!\n");
+							printf("Unable to delete breakpoint because it doesnt exist in breakpoint list!\n");
 						}
 					}else { printf("Nicht genug Parameter für breakpoint delete-Befehl!\n"); }
 				}else {
-					printf("Ungueltiger breakpoint-Befehl!\n");
+					printf("Invalid breakpoint command!\n");
 				}
-			}else if (!strcmp(input[0], "register")) {	//Single Step-Case
+			//Register commands
+			}else if (!strcmp(input[0], "register")) {
 				if (groesse ==	1) {
 					printf("Fehlende Parameter!");
-				}else if (!strcmp(input[1],"showAll")) {		//Zeige alle Register an
+				}else if (!strcmp(input[1],"showAll")) {
 					showRegistersFromTask(task);	
-				}else if (!strcmp(input[1], "set")) {		//Beschreibe Register
+				}else if (!strcmp(input[1], "set")) {
 					if (groesse == 4) {
 						int index = atoi(input[2]);
 						unsigned long long int data = strtoull(input[3], NULL, 16);
 						setRegister(task, index, data);
 						printf("Register %d auf 0x%llx\n", index, data);
 					}else { printf("Ungueltige Parameteranzahl für register set-Befehl!"); }
-				}else if (!strcmp(input[1], "read")) {		//Beschreibe Register
+				}else if (!strcmp(input[1], "read")) {
 					if (groesse == 3) {
 						int index = atoi(input[2]);
 						uint64_t data = getRegister(task, index);
 						printf("Register %d: 0x%llx\n", index, data);
 					}
-					else { printf("Ungueltige Parameteranzahl für register set-Befehl!"); }
+					else { printf("Invalid count of register set command arguments"); }
 				}else {
-					printf("Ungueltiger register-Befehl!\n");
+					printf("Invalid register command!\n");
 				}
-			}else if (!strcmp(input[0], "memory")) {	//Single Step-Case
+			//Memory commands
+			}else if (!strcmp(input[0], "memory")) {
 				if (groesse == 1) {
 					printf("Fehlende Parameter!\n");
-				}else if (!strcmp(input[1], "write")) {		//Beschreibe Register
+				}else if (!strcmp(input[1], "write")) {
 					if (groesse == 4) {
 						mach_vm_address_t addr = strtoull(input[2], NULL, 16);
 						
@@ -105,7 +109,7 @@ extern kern_return_t catch_exception_raise(
 						}
 
 						writeMemory(task, addr, (void*)&buffer, length);
-					}else { printf("Ungueltige Parameteranzahl für memory write-Befehl!"); }
+					}else { printf("Invalid count of write command arguments!"); }
 				}else if (!strcmp(input[1], "read")) {		//Lese Speicher
 					if (groesse == 4) {
 						mach_vm_address_t addr = strtoull(input[2], NULL, 16);
@@ -123,18 +127,21 @@ extern kern_return_t catch_exception_raise(
 					else { printf("Ungueltige Parameteranzahl für register set-Befehl!\n"); }
 				}
 				else {
-					printf("Ungueltiger memory-Befehl!\n");
+					printf("Invalid memory command!\n");
 				}
 			}
-			else if (!strcmp(input[0], "f") || !strcmp(input[0], "fix")) {	//Fix für den hardcoded Breakpoint im Programmcode
-				writeMemory(task, pc, (void*)&NOP, 4);	//Schreibe eine NOP an die Stelle des Breakpoints, der nicht vom Debugger behandelt werden kann
-			}else if(!strcmp(input[0],"c") || !strcmp(input[0],"continue")){	//Continue-Case
+			//NOP instruction at PC
+			else if (!strcmp(input[0], "f") || !strcmp(input[0], "fix")) {	
+				writeMemory(task, pc, (void*)&NOP, 4);	
+			//Continue program execution
+			}else if(!strcmp(input[0],"c") || !strcmp(input[0],"continue")){
 				return KERN_SUCCESS;
+			//Single Step
 			}else if (!strcmp(input[0], "n") || !strcmp(input[0], "next")) {	//Single Step-Case
 				setSSBit(task);
 				return KERN_SUCCESS;
 			}else {
-				printf("Ungueltiger Befehl!\n");
+				printf("Invalid command!\n");
 			}
 		}
 		
@@ -198,20 +205,21 @@ uint64_t getRegister(task_t task, int indexRegister) {
 
 //Gebe alle Register des 1. Threads des uebergebenen Tasks aus
 void showRegistersFromTask(task_t task) {
-	thread_act_port_array_t threads;										//Liste zur Speicherung der Threads des Tasks
+	thread_act_port_array_t threads;										
 	mach_msg_type_number_t threadsCount;
 	arm_thread_state64_t threadState;
 
-																			//Pausiere den Task
-	getThreads(task, &threads, &threadsCount);								//Ermittle alle Threads des Tasks		
-	getThreadState(&threadState, ARM_THREAD_STATE64_COUNT, threads, 0);		//Ermittle den aktuellen Status des Threads, adressiert durch "index"
-
+																			
+	getThreads(task, &threads, &threadsCount);								//Determine threads of task		
+	getThreadState(&threadState, ARM_THREAD_STATE64_COUNT, threads, 0);		//Determine state of first thread
+	
+	//Print all GPOs
 	fprintf(stderr, "Program counter: 0x%llx\n", threadState.__pc);
 	fprintf(stderr, "Current program status register: 0x%x\n", threadState.__cpsr);
 	fprintf(stderr, "Frame pointer: 0x%llX\n", threadState.__fp);
 	fprintf(stderr, "Link register: 0x%llX\n", threadState.__lr);
 	fprintf(stderr, "Stack pointer: 0x%llX\n", threadState.__sp);
-	fprintf(stderr, "Unbekanntes Register: 0x%X\n", threadState.__pad);
+	fprintf(stderr, "Unkown Register: 0x%X\n", threadState.__pad);			//Dunno registers name
 
 	for (int gpregister = 0; gpregister < 29; gpregister += 4)
 		fprintf(stderr, "X%02d:%016llx	X%02d:%016llx	X%02d:%016llx	X%02d:0x%016llx\n", gpregister, threadState.__x[gpregister],
@@ -219,20 +227,20 @@ void showRegistersFromTask(task_t task) {
 	
 }
 
-//Ermittle Task anhand der Prozess-ID
+//Determine task(port) of given PID
 task_t getTaskFromPID(pid_t pID) {
 
 	if (pID != 0) {
 		task_t task;
 
-		kern_return_t kreturn = task_for_pid(mach_task_self(), pID, &task);			//Ermittle Task des Prozesses -> Parent ist dieser Prozess & Task wird in "task" gespeichert
+		kern_return_t kreturn = task_for_pid(mach_task_self(), pID, &task);			
 
-		if (kreturn != KERN_SUCCESS) {										//Ermittlung fehlgeschlagen....
+		if (kreturn != KERN_SUCCESS) {										
 			fprintf(stderr, "TASK_FOR_PID: %s\n", mach_error_string(kreturn));
 			exit(kreturn);
 		}
 		else { 
-			fprintf(stderr, "Task erfolgreich ermittelt!\n");
+			fprintf(stderr, "Succesfully determined task/-port");
 			return task;
 		}
 	
@@ -242,33 +250,33 @@ task_t getTaskFromPID(pid_t pID) {
 	}
 }
 
-//Pausiere die Ausfuehrung des uebergebenen Tasks
+//Pause task execution(its threads) (needs some renaming)
 void pauseChild(task_t task) {
-	kern_return_t kreturn = task_suspend(task);									//Task "anhalten" -> Die Ausführung aller Threads wird gestoppt
-	if (kreturn != KERN_SUCCESS) {									//Anhalten fehlgeschlagen...
+	kern_return_t kreturn = task_suspend(task);						//Stop execution of all threads
+	if (kreturn != KERN_SUCCESS) {									
 		fprintf(stderr, "TASK_SUSPEND: %s\n", mach_error_string(kreturn));
 		exit(kreturn);
 	}
 }
 
-//Ermittle alle Threads des uebergebenen Tasks
+//Determine all threads of task
 void getThreads(task_t task, thread_act_port_array_t* threadsList, mach_msg_type_number_t* threadsCount) {
-	kern_return_t kreturn = task_threads(task, threadsList, threadsCount);		//Ermittle alle Threads des Tasks -> Speichere alle in "thread_list" und Anzahl dieser in "thread_count"
-	if (kreturn != KERN_SUCCESS) {									//Ermittlung fehlgeschlagen...
+	kern_return_t kreturn = task_threads(task, threadsList, threadsCount);		
+	if (kreturn != KERN_SUCCESS) {									
 		printf("TASK_THREADS: %s\n", mach_error_string(kreturn));
 	}
 }
 
-//Setze die Ausfuehrung eines pausierten Tasks fort
+//Resume execution of task (its threads)
 void resumeChild(task_t task) {
-	//TODO: Pruefe ob Task überhaupt angehalten ist
+	//TODO: Check if task was paused before (Critical error attempting to resume a non paused task/threads)
 	kern_return_t kreturn = task_resume(task);
 	if (kreturn != KERN_SUCCESS) {
 		printf("TASK_RESUME: %s\n", mach_error_string(kreturn));
 	}
 }
 
-//Ermittle Debug-State
+//Determine debug state of a thread (indexed by "index")
 void getDebugState(arm_debug_state64_t* state, mach_msg_type_number_t stateCount, thread_act_port_array_t threadsList, int index) {
 	kern_return_t kreturn = thread_get_state(threadsList[index], ARM_DEBUG_STATE64, (thread_state_t)state, &stateCount);
 	if (kreturn != KERN_SUCCESS) {
@@ -276,7 +284,7 @@ void getDebugState(arm_debug_state64_t* state, mach_msg_type_number_t stateCount
 	}
 }
 
-//Setze Debug-State (für SS-Bit)
+//Set debug state of a thread (indexed by "index")
 void setDebugState(arm_debug_state64_t* state, mach_msg_type_number_t stateCount, thread_act_port_array_t threadsList, int index) {
 	kern_return_t kreturn = thread_set_state(threadsList[index], ARM_DEBUG_STATE64, (thread_state_t)state, stateCount);
 	if (kreturn != KERN_SUCCESS) {
@@ -284,7 +292,7 @@ void setDebugState(arm_debug_state64_t* state, mach_msg_type_number_t stateCount
 	}
 }
 
-//Ermittle den Status/State (Registerinhalte) eines uebergebenen Threads
+//Determine registers value of a thread (indexed by "index")
 void getThreadState(arm_thread_state64_t* state, mach_msg_type_number_t stateCount, thread_act_port_array_t threadsList, int index) {
 	kern_return_t kreturn = thread_get_state(threadsList[index], ARM_THREAD_STATE64, (thread_state_t)state, &stateCount);
 	if (kreturn != KERN_SUCCESS) {
@@ -292,7 +300,7 @@ void getThreadState(arm_thread_state64_t* state, mach_msg_type_number_t stateCou
 	}
 }
 
-//Setze den Status/State des uebergebenen Threads
+//Set registers value of a thread (indexed by "index")
 void setThreadState(arm_thread_state64_t* state, mach_msg_type_number_t stateCount, thread_act_port_array_t threadsList, int index) {
 	kern_return_t kreturn = thread_set_state(threadsList[index], ARM_THREAD_STATE64, (thread_state_t)state, stateCount);
 	if (kreturn != KERN_SUCCESS) {
@@ -300,13 +308,14 @@ void setThreadState(arm_thread_state64_t* state, mach_msg_type_number_t stateCou
 	}
 }
 
-//Ein Register des 1. Threads des uebergebenen Tasks setzen
+
+//Set individual register of first thread (this function needs to become generalized(set content of an individual register in a given thread))
 void setRegister(task_t task, int indexRegister, long long unsigned value) {
-		thread_act_port_array_t threads;										//Liste zur Speicherung der Threads des Tasks
+		thread_act_port_array_t threads;										
 		mach_msg_type_number_t threadsCount;
 		arm_thread_state64_t threadState;
 
-		getThreads(task, &threads, &threadsCount);								//Ermittle alle Threads des Tasks		
+		getThreads(task, &threads, &threadsCount);								
 		getThreadState(&threadState, ARM_THREAD_STATE64_COUNT, threads, 0);
 
 		if (indexRegister <= 28) {
@@ -334,7 +343,7 @@ void setRegister(task_t task, int indexRegister, long long unsigned value) {
 		setThreadState(&threadState, ARM_THREAD_STATE64_COUNT, threads, 0);
 }
 
-//size Bytes ab Stelle addr aus Speicher des übergebenen Task lesen
+//Read memory chunk of tasks memory space 
 unsigned char* readMemory(task_t task, vm_address_t addr, mach_vm_size_t size) {
 	
 	unsigned char* buf = (unsigned char*)malloc(sizeof(unsigned char) * size);
@@ -353,19 +362,17 @@ unsigned char* readMemory(task_t task, vm_address_t addr, mach_vm_size_t size) {
 
 }
 
-//Speicher des übergebenen Task überschreiben
+//Write chunk of data into tasks memory space
 bool writeMemory(task_t task, mach_vm_address_t dest, void* data, unsigned int size) {
 	unsigned char* dataToWrite = (unsigned char*)data;
-
-	//fprintf(stderr, "Writing at 0x%llx: 0x%.2hhx%.2hhx%.2hhx%.2hhx\n", dest, dataToWrite[0], dataToWrite[1], dataToWrite[2], dataToWrite[3]);
 	
-	kern_return_t kern = mach_vm_protect(task, dest, 10, false, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+	kern_return_t kern = mach_vm_protect(task, dest, 10, false, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY); //Add write privilege to/for memory chunk the data will be written to
 	if (kern != KERN_SUCCESS) {
 		printf("Protection1: %s\n", mach_error_string(kern));
 		return false;
 	}
 	
-	kern = mach_vm_write(task, dest, (vm_offset_t)data, (mach_msg_type_number_t)size);
+	kern = mach_vm_write(task, dest, (vm_offset_t)data, (mach_msg_type_number_t)size); //Write new data into memory
 	if (kern != KERN_SUCCESS) {
 		printf("Write: %s\n", mach_error_string(kern));
 		return false;
@@ -375,7 +382,7 @@ bool writeMemory(task_t task, mach_vm_address_t dest, void* data, unsigned int s
 
 
 	/* Change memory protections back to r-x */
-	kern = mach_vm_protect(task, dest, 10, false, VM_PROT_EXECUTE | VM_PROT_READ);
+	kern = mach_vm_protect(task, dest, 10, false, VM_PROT_EXECUTE | VM_PROT_READ); //Undo write privilege
 	if (kern != KERN_SUCCESS) {
 		printf("Protection2: %s\n", mach_error_string(kern));
 		return false;
@@ -383,57 +390,56 @@ bool writeMemory(task_t task, mach_vm_address_t dest, void* data, unsigned int s
 	return true;
 }
 
-//Erstelle einen ExceptionPort für child task
+//Create new exception port for given task
 mach_port_t* createExceptionPort(task_t task) {
 	kern_return_t kreturn;
 
 	mach_port_t* newExceptionPort = (mach_port_t*)malloc(sizeof(mach_port_t));
-	exception_mask_t exceptionMask = EXC_MASK_ALL;
+	exception_mask_t exceptionMask = EXC_MASK_ALL; //Define exception mask (could be breakpont only)
 
-	//Erstelle einen neuen Port
-	kreturn = mach_port_allocate(mach_task_self(),MACH_PORT_RIGHT_RECEIVE, newExceptionPort);
+	
+	kreturn = mach_port_allocate(mach_task_self(),MACH_PORT_RIGHT_RECEIVE, newExceptionPort); //Create new port with Receive right for debugger/caller
 	if (kreturn != KERN_SUCCESS) {
 		fprintf(stderr, "MACH_PORT_ALLOCATE: %s\n", mach_error_string(kreturn)); 
 		return NULL; 
 	}
 
-	//Vergebe Rechte, die ein Exception-Port benoetigt
-	kreturn = mach_port_insert_right(mach_task_self(), *newExceptionPort, *newExceptionPort, MACH_MSG_TYPE_MAKE_SEND);
+	
+	kreturn = mach_port_insert_right(mach_task_self(), *newExceptionPort, *newExceptionPort, MACH_MSG_TYPE_MAKE_SEND); //Add Send right for debugger/caller to port
 	if (kreturn != KERN_SUCCESS) {
 		fprintf(stderr, "MACH_PORT_INSERT_RIGHT: %s\n", mach_error_string(kreturn));
 		return NULL;
 	}
 
-	//Ordne den neuen Exception-Port dem Debugee zu
-	kreturn = task_set_exception_ports(task, exceptionMask, *newExceptionPort, EXCEPTION_DEFAULT, ARM_THREAD_STATE64);
+	
+	kreturn = task_set_exception_ports(task, exceptionMask, *newExceptionPort, EXCEPTION_DEFAULT, ARM_THREAD_STATE64); //Assign the new exception port to the task/debugee
 	if (kreturn != KERN_SUCCESS) {
-		fprintf(stderr, "TASK_SET_EXCEPTION: %s\n", mach_error_string(kreturn));
+		fprintf(stderr, "TASK_SET_EXCEPTION_PORT: %s\n", mach_error_string(kreturn));
 		return NULL;
 	}
 	
-	//Gebhe den neuen Exception-Port zurück
 	return newExceptionPort;
 }
 
-//Exception-Handler erstellen/starten
+//Create new exception handler
 void createExceptionHandler(mach_port_t exceptionPort) {
-	mach_msg_server(exc_server, 1052, exceptionPort, MACH_MSG_TIMEOUT_NONE);
+	mach_msg_server(exc_server, 1052, exceptionPort, MACH_MSG_TIMEOUT_NONE); //Call message server provided by MACH-API
 }
 
-//Breakpoint hinzufügen
+//Create new breakpoint (typical double linked list node stuff...)
 bool addBreakpoint(task_t task, vm_address_t addr, bool permanent) {
-	//Neue Sicherung erstellen
+	
 	Breakpoint* newBP = (Breakpoint*)malloc(sizeof(Breakpoint));
-	newBP->instruction = readMemory(task, addr, 4);
+	newBP->instruction = readMemory(task, addr, 4); //Save original instruction at given address
 	newBP->addr = addr;
 	newBP->permanent = permanent;
 	newBP->next = NULL;
 	newBP->previous = NULL;
 
-	//Originale Instruktion mit Breakpoint-Instruktion überschreiben
-	bool result = writeMemory(task, addr, (void*)&breakpointInstruction, 4);
+	
+	bool result = writeMemory(task, addr, (void*)&breakpointInstruction, 4); //Overwrite original instruction with breakpoint instruction
 	if (result) {
-		if (breakpointList == NULL) { breakpointList = newBP; return true; }		//Wenn Liste leer ist, dann setze neuen BP als erstes Element mit keinem Vorgänger und Nachfolger
+		if (breakpointList == NULL) { breakpointList = newBP; return true; }
 
 		Breakpoint* tmp = breakpointList;
 		while (tmp->next != NULL) { tmp = tmp->next; }
@@ -443,7 +449,7 @@ bool addBreakpoint(task_t task, vm_address_t addr, bool permanent) {
 		return true;
 	}else {
 		free(newBP);
-		fprintf(stderr, "Breakpoint-Instruktion konnte nicht geschrieben werden ");
+		fprintf(stderr, "Unable to create new breakpoint!\n");
 		return false;
 	}
 	
@@ -451,30 +457,29 @@ bool addBreakpoint(task_t task, vm_address_t addr, bool permanent) {
 	
 }
 
-//Breakpoints als Liste ausgeben
+//Print all breakpoints in breakpoint list
 void printBreakpoints() {
 	fprintf(stderr, "           Breakpoints:\n------------------------------------\n");
 	Breakpoint* tmp = breakpointList;
 	while (tmp != NULL) {
-		fprintf(stderr, "Adresse: 0x%lx - Instruktion: 0x%.2hhx%.2hhx%.2hhx%.2hhx\n", tmp->addr, tmp->instruction[0], tmp->instruction[1], tmp->instruction[2], tmp->instruction[3]);
+		fprintf(stderr, "Address: 0x%lx - Instruction: 0x%.2hhx%.2hhx%.2hhx%.2hhx\n", tmp->addr, tmp->instruction[0], tmp->instruction[1], tmp->instruction[2], tmp->instruction[3]);
 		tmp = tmp->next;
 	}
 	fprintf(stderr, "------------------------------------\n");
 }
 
-//Breakpoint aus Liste entfernen
+//Delete breakpoint from breakpontlist/Restore original instruction (again basic double linked list sutff)
 bool deleteBreakpoint(task_t task, vm_address_t addr) {
 	Breakpoint* tmp = breakpointList;
 
 	while (tmp != NULL) {
 		if (tmp->addr == addr) {
-			bool result = writeMemory(task, addr, tmp->instruction, 4);	//Schreibe originale Instruktion in den Programmspeicher
+			bool result = writeMemory(task, addr, tmp->instruction, 4);	//Overwrite breakpoint instruction with original instruction
 			if (result) {
 				if (tmp->previous != NULL) {
 					tmp->previous->next = tmp->next;
 					tmp->next->previous = tmp->previous;
 					free(tmp);
-					fprintf(stderr, "Wiederherstellung erfolgreich!\n");
 				}
 				else if (tmp->previous == NULL && tmp->next != NULL) {
 					tmp->next->previous = NULL;
@@ -486,17 +491,17 @@ bool deleteBreakpoint(task_t task, vm_address_t addr) {
 				else { breakpointList = NULL; }
 				free(tmp);
 			}else {
-				fprintf(stderr, "Fehler bei Wiederherstellung der Instruktion 0x%.2hhx%.2hhx%.2hhx%.2hhx an Stelle 0x%lx\n", tmp->instruction[0], tmp->instruction[1], tmp->instruction[2], tmp->instruction[3], tmp->addr);
+				fprintf(stderr, "Failed to restore original instruction 0x%.2hhx%.2hhx%.2hhx%.2hhx at address 0x%lx\n", tmp->instruction[0], tmp->instruction[1], tmp->instruction[2], tmp->instruction[3], tmp->addr);
 				return false;
 			}
 		}
 		tmp = tmp->next;
 	}
-	fprintf(stderr, "Kein Breakpoint für Speicheradresse 0x%lx nicht gefunden!\n", tmp->addr);
+	fprintf(stderr, "No breakpoint found for address: 0x%lx\n", tmp->addr);
 	return false;
 }
 
-//Prüfen ob für eine übergebene Adresse ein Breakpoint in der Liste existiert
+//Check if a breakpoint at given address exists in list (breakpoint at address was set by the debugger)
 bool BreakpointExists(vm_address_t addr) {
 	Breakpoint* tmp = breakpointList;
 	while (tmp != NULL) {
@@ -506,14 +511,14 @@ bool BreakpointExists(vm_address_t addr) {
 	return false;
 }
 
-//Die Eingabe des Nutzers entgegennehmen und als Wort-Array zurückgeben
+//Some user input stuff...
 char** getInput(char* words_count) {
 	int word_start_index = 0;
-	int size = 0;   //Größe der rohen Eingabe
+	int size = 0;   
 	int word_size = 0;
-	int words_counter = 0;  //Wortzähler
-	char** words = NULL;   //Array der Wörter
-	char* input = getRAWInput(&size);   //Rohe Eingabe des Nutzers
+	int words_counter = 0;  
+	char** words = NULL;   
+	char* input = getRAWInput(&size);
 
 	for (int i = 0; i < size + 1; i++) {
 		word_size++;
@@ -534,7 +539,7 @@ char** getInput(char* words_count) {
 	return words;
 }
 
-//Teilstring aus übergebenem String ab Start-Index extrahieren
+//Get substring of string (for user input stuff/parsing)
 char* getSubstring(char* input, int start_index, int size) {
 
 	char* newString = (char*)malloc(sizeof(char) * size);	//Allokiere neuen Speicherbereich für den Substring
@@ -547,31 +552,31 @@ char* getSubstring(char* input, int start_index, int size) {
 
 }
 
-//Komplette "rohe" Eingabe des Nutzers entgegennehmen
+//User input stuff again.......
 char* getRAWInput(int* outputSize) {
 	unsigned int i = 0;
-	const unsigned int max_length = 128;      //Maximale Länge des Eingabestrings für den Anfang
-	unsigned int size = 0;              //Zähler für die jeweils maximale Größe des Speichers
+	const unsigned int max_length = 128;      
+	unsigned int size = 0;              
 
-	char* finalString = malloc(max_length); //Allokiere Speicher für Eingabe mit voerst maximaler Länge
+	char* finalString = malloc(max_length); 
 	size = max_length;
 
 
 	if (finalString != NULL) {
 		int c = EOF;
 
-		//Solgange kein keine neue Zeile angefordert wird ("Enter")
+		
 		while ((c = getchar()) != '\n' && c != EOF) {
 			finalString[i++] = (char)c;
 
-			//Wenn die maximale Anzahl an verfügbaren Bytes erreicht ist
+			
 			if (i == size) {
 				size = i + max_length;
-				finalString = realloc(finalString, size);   //Allokiere weitere max_length Bytes für weitere Eingabe
+				finalString = realloc(finalString, size);  
 			}
 		}
 
-		finalString[i] = '\0';      //Füge dem eingelesenen String noch einen NULL-Charakter hinzu
+		finalString[i] = '\0';      
 
 	}
 	*outputSize = i;

@@ -58,8 +58,8 @@ typedef struct Breakpoint {
 	bool permanent;
 	struct Breakpoint* next;
 	struct Breakpoint* previous;
-}Breakpoint;
-Breakpoint* breakpointList = NULL; //Double linked breakpoint list
+}Breakpoint; //Breakpoint list element
+Breakpoint* breakpointList = NULL; //Double linked breakpoint list header
 bool addBreakpoint(task_t task, vm_address_t addr, bool permanent);
 bool deleteBreakpoint(task_t task, vm_address_t addr);
 void printBreakpoints();
